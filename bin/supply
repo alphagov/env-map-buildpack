@@ -1,30 +1,49 @@
 #!/bin/bash
-# bin/compile <build-dir> <cache-dir>
 
-set -ex
+set -e
 
 APP_DIR=$1
-CACHE_DIR=$2
 DEPS_DIR=$3
 IDX=$4
 
-CONFIG=${ENV_MAP_BP_CONFIG:-"env-map.yml"}
-echo "Creating profile.d file using $CONFIG"
+log_prefix='-----> [env-map-buildpack]'
 
-if [[ $CONFIG =~ ".json" ]]; then
-  JSON_CONFIG="$(cat $APP_DIR/$CONFIG)"
+CONFIG=${ENV_MAP_BP_CONFIG:-"env-map.yml"}
+echo "$log_prefix Creating profile.d file using $CONFIG"
+
+if [[ $CONFIG =~ .json ]]; then
+  JSON_CONFIG="$(< "$APP_DIR/$CONFIG")"
 else
-  echo "Downloading yq"
-  curl -L https://github.com/mikefarah/yq/releases/download/2.4.1/yq_linux_amd64 -o yq
+  echo "$log_prefix Downloading yq"
+  curl --silent --location https://github.com/mikefarah/yq/releases/download/2.4.1/yq_linux_amd64 -o yq
   chmod +x yq
-  JSON_CONFIG="$(./yq r $APP_DIR/$CONFIG -j)"
+  JSON_CONFIG="$(./yq r "$APP_DIR/$CONFIG" -j)"
 fi
 
-mkdir -p $DEPS_DIR/$IDX/profile.d
-for var in $(echo "$JSON_CONFIG" | jq -r '.env_vars | keys[]'); do
-	selector="$(echo "$JSON_CONFIG" | jq -r ".env_vars.$var")"
-  echo "export $var=\"\$(echo \$VCAP_SERVICES | jq -r '$selector')\"" >> $DEPS_DIR/$IDX/profile.d/$IDX-mapped-env-vars.sh
-done
+function write_profile_d_script() {
+  local profile_dir=$1
 
-echo "-----> Done."
+  mkdir -p "$profile_dir"
+  profile_file="$profile_dir/$IDX-mapped-env-vars.sh"
+
+  for var in $(echo "$JSON_CONFIG" | jq -r '.env_vars | keys[]'); do
+    selector="$(echo "$JSON_CONFIG" | jq -r ".env_vars.$var")"
+    echo "export $var=\"\$(echo \$VCAP_SERVICES | jq -r '$selector')\"" >> "$profile_file"
+  done
+}
+
+if [[ "$ENV_MAP_BP_USE_APP_PROFILE_DIR" == "true" ]]; then
+  # HACK:
+  # The java buildpack doesn't support loading environment variables from .profile.d in deps/ID/profile.d
+  # So we also have to write it to app/.profile.d instead
+  #
+  # See https://github.com/cloudfoundry/java-buildpack/issues/563#issuecomment-452437417
+  # and https://github.com/cyberark/cloudfoundry-conjur-buildpack/blob/31f4cbef/bin/supply#L96-L115
+  write_profile_d_script "$APP_DIR/.profile.d/"
+else
+  write_profile_d_script "$DEPS_DIR/$IDX/profile.d"
+fi
+
+echo "$log_prefix Done."
 exit 0
+
