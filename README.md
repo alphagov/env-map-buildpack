@@ -30,3 +30,18 @@ This buildpack does not attempt to resolve situations such as multiple results r
 To make configuration easier, YAML is the default configuration format. To parse this format, the buildpack downloads and uses [yq](https://github.com/mikefarah/yq). For users who cannot download external binaries or for users who prefer JSON for configuration, you can provide a mapping file in JSON format with a `.json` extension. This will skip downloading `yq` and so should work on security concious/air-gapped environments.
 
 To instruct the buildpack to use a JSON formatted file, use the `ENV_MAP_BP_CONFIG` environment variable detailed above.
+
+### Java Buildpack support
+
+The java buildpack ([cloudfoundry/java-buildpack](https://github.com/cloudfoundry/java-buildpack)) does not support
+sourcing environment variables from `deps/$IDX/profile.d` (which is part of the
+[core buildpack communication contract](https://docs.cloudfoundry.org/buildpacks/custom.html#-core-buildpack-communication-contract)).
+
+The env-map-buildpack relies on being able to use the `.profile.d` directory to set environment variables just before
+the application starts.
+
+To work around the java buildpack's lack of support for this, instead of writing to the `deps/$IDX/profile.d` directory
+env-map-buildpack can write directly to the app's `app/.profile.d` directory, which will get sourced, even in the java buildpack.
+
+To enable this behaviour, set the `ENV_MAP_BP_USE_APP_PROFILE_DIR` environment variable to `"true"`.
+
